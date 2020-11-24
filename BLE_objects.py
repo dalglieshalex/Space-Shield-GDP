@@ -15,13 +15,13 @@ class BLE:
         projectile sheet
         """
         varis = pd.DataFrame(pd.read_excel(
-            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\ShieldProperties.xlsx',
+            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ShieldProperties.xlsx',
             sheet_name=shieldsheet, index_col=0,
             header=0, dtype={'denotion': str,
                              'Value': float}))
         # import data from excel sheet and convert to numpy array
         varip = pd.DataFrame(pd.read_excel(
-            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\ProjectileProperties.xlsx',
+            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ProjectileProperties.xlsx',
             sheet_name=projsheet, index_col=0, header=0,
             dtype={'Value': float}))
 
@@ -46,7 +46,7 @@ class BLE:
         self.vel = 1
         # create dcrit arrays
         self.rngdcrit = []
-        self.Christdcrit = []
+
         self.maxvel = 14
         self.minvel = 0.5
         # set shatter region limits
