@@ -7,6 +7,9 @@ Created on Sun Nov 22 11:11:15 2020
 import numpy as np
 import pandas as pd
 import pylab
+from itertools import product
+import time
+
 
 class BLE:
     def __init__(self, shieldsheet, projsheet):
@@ -46,13 +49,17 @@ class BLE:
         self.vel = 1
         # create dcrit arrays
         self.rngdcrit = []
-
-        self.maxvel = 14
+        # define iteration inputs
+        self.Arho_max = 3 # g
+        self.succ_rate = 95 # %
+        # define label inputs
+        self.lbl = 0
+        self.maxvel = 12
         self.minvel = 0.5
         # set shatter region limits
         # ideally shock analysis done to work this out
-        self.v_shat = 3 # kms^-1
-        self.v_vap = 7 # kms^-1
+        self.v_shat = 4.2 # kms^-1
+        self.v_vap = 8.4 # kms^-1
 
 
     def drange(self, vel):
@@ -75,10 +82,9 @@ class BLE:
 
 
     def graph(self):
-        vd = self.arr()
-        pylab.plot(vd[:, 0], vd[:,1], 'c', label = 'Christiansen')
+        vd = np.array(self.arr())
+        pylab.plot(vd[:, 0], vd[:,1], 'c')
         pylab.axis([0, self.maxvel+1, 0, vd[0, 1]+0.1])
-        pylab.legend()
         pylab.xlabel('Velocity (km.s-1)')
         pylab.ylabel('Crit Diameter (cm)')
 
@@ -90,12 +96,60 @@ class BLE:
         """
         # determine critical diameter for each velocity with given shield
         # and projectile properties
-        i = self.minvel
-        while i <= self.maxvel:
-            self.rngdcrit.append([i, self.drange(i)])
-            i+=0.1
-        return np.array(self.rngdcrit)
+        d = {}
+        for i in np.linspace(self.minvel, self.maxvel, 100):
+            d[i] = float(self.drange(i))
+        self.rngdcrit = list(d.items())
+        return self.rngdcrit
 
+
+    def ideal(self, Arho_max, succ_rate):
+        start_time = time.time()
+        # define % of non-perforation over velocity range
+        self.succ_rate = succ_rate
+        self.Arho_max = Arho_max
+        # define output list containing successful variables
+        a = {}
+        # define range of shield values to vary and the ranges of variation
+        S1rng = np.arange(start = 0.1, stop = 5, step = 0.1)
+        t_obrng = np.arange(start = 0.1, stop = 1, step = 0.05)
+        t_brng = np.arange(start = 0.1, stop = 1, step = 0.05)
+        # define ratio between bumper density and inner structure density
+        rho_ratio = 0.5
+        # iterate for all combinations
+        # prog_count = 0
+        itr_count = 0
+        for i, j, k in product(S1rng, t_obrng, t_brng):
+            self.S1 = i
+            self.t_ob = j
+            self.t_b = k
+            # filter out area ratios greater than Arho_max
+            A_rho = self.rho_b * (j + k + rho_ratio * i)
+            if A_rho <= self.Arho_max:
+                g = self.arr()
+                succ = 0
+                for p in g:
+                    if p[1] > self.di:
+                        succ += 1
+                sucr = (succ/len(g)) * 100
+                if sucr >= self.succ_rate:
+                    a[itr_count] = i, j, k, sucr, A_rho
+                itr_count += 1
+            # prog_count += 1
+            # prog_perc = (prog_count/len(S1rng))*100
+            # print(prog_perc)   
+            if not itr_count%100:
+                print(f'itr {itr_count} in {(time.time() - start_time):.3f} s')
+        b = np.array(list(a.values())) 
+        c = b[np.argmin(b[:][:,-1])]
+
+        print(f"Bumper spacing = {c[0]:.2f}cm\nOuter bumper thickness ="
+              f" {c[1]:.2f}cm\nInner bumper thickness = {c[2]:.2f}cm\n"
+              f"These parameters give a success rate of {c[3]}% "
+              f"and the area density is {c[4]}g.cm^-2")
+
+        return c
+                    
 
 class SRL(BLE):
     """
@@ -103,7 +157,7 @@ class SRL(BLE):
     plate.
     This BLE has a 80% success rate in prediction based on 55 experiments
     """
-    
+
     def crit_d_bal(self, vel, impact_angle=0):
         self.vel = vel
         self.impact_angle = impact_angle
@@ -112,10 +166,10 @@ class SRL(BLE):
         # determine normal velocity
         theta = self.impact_angle * (np.pi/180)
 
-        dc = ((((self.t_wall ** 0.5 + self.t_b) / K3S) *
+        dc = (((((self.t_wall ** 0.5 + self.t_b) / K3S) *
                  ((self.Sigma/40) ** 0.5) + self.t_ob) /
             (0.6 * (np.cos(theta) ** (4/3)) * (self.rho_p ** 0.5)
-            * self.vel ** (2/3))) ** (18/19)
+            * self.vel ** (2/3))) ** (18/19))
         return dc
 
 
@@ -136,7 +190,7 @@ class SRL(BLE):
 
 
 class Christiansen(BLE):
-
+    lbl = 'Christiansen'
 
     def crit_d_bal(self, vel, impact_angle=0):
         """
