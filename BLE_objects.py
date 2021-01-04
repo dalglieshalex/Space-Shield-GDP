@@ -21,12 +21,12 @@ class BLE:
             r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ShieldProperties.xlsx',
             sheet_name=shieldsheet, index_col=0,
             header=0, dtype={'denotion': str,
-                             'Value': float}))
+                             'Value': float}, engine='openpyxl'))
         # import data from excel sheet and convert to numpy array
         varip = pd.DataFrame(pd.read_excel(
             r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ProjectileProperties.xlsx',
             sheet_name=projsheet, index_col=0, header=0,
-            dtype={'Value': float}))
+            dtype={'Value': float}, engine='openpyxl'))
 
         # convert pandas dataframe to numpy array
         varo = varis.values  
@@ -54,12 +54,12 @@ class BLE:
         self.succ_rate = 95 # %
         # define label inputs
         self.lbl = 0
-        self.maxvel = 12
+        self.maxvel = 16
         self.minvel = 0.5
         # set shatter region limits
         # ideally shock analysis done to work this out
-        self.v_shat = 4.2 # kms^-1
-        self.v_vap = 8.4 # kms^-1
+        self.v_shat = 3 # kms^-1
+        self.v_vap = 7 # kms^-1
 
 
     def drange(self, vel):
@@ -82,11 +82,13 @@ class BLE:
 
 
     def graph(self):
+        start_time = time.time()
         vd = np.array(self.arr())
         pylab.plot(vd[:, 0], vd[:,1], 'c')
         pylab.axis([0, self.maxvel+1, 0, vd[0, 1]+0.1])
         pylab.xlabel('Velocity (km.s-1)')
         pylab.ylabel('Crit Diameter (cm)')
+        print(f'Time: {(time.time() - start_time):.3f} s')
 
 
     def arr(self):
@@ -103,53 +105,112 @@ class BLE:
         return self.rngdcrit
 
 
-    def ideal(self, Arho_max, succ_rate):
+    def ideal(self, succ_rate, Arho_max = 3, bumper_dependancy = 0, inc_wall = True):
+        """
+        The definition of 'ideal' used in this function is:
+            An ideal shield should have the lowest possible area density while
+            preventing perforation caused by a given diameter particle that
+            could be travelling over a range of velocities.
+        Parameters
+        ----------
+        succ_rate : int
+            The percentage of velocities over the velocity range for which 
+            perforation has been successfully prevented. Given in %.
+        Arho_max : int, optional
+            A filter. The maximum area density that function should scan over.
+            The default is 3. Given in g.cm^-2.
+        bumper_thickness_dependancy : int, optional
+            The ratio of thickness between the outer and inner bumper. If both
+            bumper thicknesses should be independant set to 0. 
+            If multiple bumpers: enter list of floats where the first number
+            corresponds to thickness ratio between fist and second bumper,
+            the second number corresponds to second and third e.t.c.
+            Independant ratios in this list should be set to 0.
+            The default is 0.
+
+        Returns
+        -------
+        Array of floats64
+            DESCRIPTION.
+
+        """
         start_time = time.time()
         # define % of non-perforation over velocity range
         self.succ_rate = succ_rate
         self.Arho_max = Arho_max
         # define output list containing successful variables
         a = {}
-        # define range of shield values to vary and the ranges of variation
-        S1rng = np.arange(start = 0.1, stop = 5, step = 0.1)
-        t_obrng = np.arange(start = 0.1, stop = 1, step = 0.05)
-        t_brng = np.arange(start = 0.1, stop = 1, step = 0.05)
-        # define ratio between bumper density and inner structure density
-        rho_ratio = 0.5
+        # define shield values to vary and the ranges of variation
+        S1rng = np.arange(start = 0.1, stop = 10, step = 0.1)
+        t_obrng = np.arange(start = 0.1, stop = 5, step = 0.05)
+        if self.t_b == 0: # allows analysis of whipple shields
+            t_brng = np.zeros(1)
+            rho_ratio = 0
+        else:
+            t_brng = np.arange(start = 0.1, stop = 5, step = 0.05)
+            # approximate ratio between average inner structure density and 
+            # bumper density
+            rho_ratio = 0.1
+        # is wall considered in area density calculation?
+        if inc_wall == False:
+            wall = 0
+        elif inc_wall == True:
+            wall = self.t_wall
+        else:
+            print('ERROR: inc_wall poorly defined. Define as either True or False')
+            return 0
         # iterate for all combinations
-        # prog_count = 0
         itr_count = 0
+        # define error counters
+        Arho_ct = 0
+        succ_ct = 0
         for i, j, k in product(S1rng, t_obrng, t_brng):
             self.S1 = i
             self.t_ob = j
-            self.t_b = k
+            if bumper_dependancy == 0:
+                self.t_b = k
+            else:
+                self.t_b = bumper_dependancy * j
+            A_rho = self.rho_b * (j + k + rho_ratio * i + wall)
             # filter out area ratios greater than Arho_max
-            A_rho = self.rho_b * (j + k + rho_ratio * i)
             if A_rho <= self.Arho_max:
+                Arho_ct += 1
                 g = self.arr()
                 succ = 0
                 for p in g:
                     if p[1] > self.di:
                         succ += 1
                 sucr = (succ/len(g)) * 100
+                # determine whether condition satisfies the minimum success rate
                 if sucr >= self.succ_rate:
-                    a[itr_count] = i, j, k, sucr, A_rho
+                    a[itr_count] = self.S1, self.t_ob, self.t_b, sucr, A_rho
+                    succ_ct += 1
                 itr_count += 1
-            # prog_count += 1
-            # prog_perc = (prog_count/len(S1rng))*100
-            # print(prog_perc)   
-            if not itr_count%100:
-                print(f'itr {itr_count} in {(time.time() - start_time):.3f} s')
-        b = np.array(list(a.values())) 
-        c = b[np.argmin(b[:][:,-1])]
+        if Arho_ct == 0:
+            print('ERROR: No comination with Arho <= Arho_max\n'
+                  'Try increasing Arho_max')
+            return 0
+        elif succ_ct == 0:
+            print('ERROR: No condition with this Arho_max was successful\n'
+                  'Try decreasing succ_rate or increasing Arho_max')
+            return 0
+        else:
+            b = np.array(list(a.values()))
+            c = b[np.argmin(b[:][:,-1])][4]
+            # find all conditions with lowest area density then find the greates success rate among them
+            d = []
+            for i in b:
+                if (i[4]-c)/c <= 0.05: # include all area densities within 5% of min value
+                    d.append(i)
+            e = np.array(d)
+            ans = e[np.argmax(e[:][:,-2])]
+            print(f'itr {itr_count} in {(time.time() - start_time):.3f} s')
+            print(f"Bumper spacing = {ans[0]:.2f}cm\nOuter bumper thickness ="
+                  f" {ans[1]:.2f}cm\nInner bumper thickness = {ans[2]:.2f}cm\n"
+                  f"These parameters give a success rate of {ans[3]}% "
+                  f"and the area density is {ans[4]:.2f}g.cm^-2")
+            return ans
 
-        print(f"Bumper spacing = {c[0]:.2f}cm\nOuter bumper thickness ="
-              f" {c[1]:.2f}cm\nInner bumper thickness = {c[2]:.2f}cm\n"
-              f"These parameters give a success rate of {c[3]}% "
-              f"and the area density is {c[4]}g.cm^-2")
-
-        return c
-                    
 
 class SRL(BLE):
     """
