@@ -84,6 +84,7 @@ class BLE:
     def graph(self):
         start_time = time.time()
         vd = np.array(self.arr())
+        self.graph_prop()
         pylab.plot(vd[:, 0], vd[:,1], 'c')
         pylab.axis([0, self.maxvel+1, 0, vd[0, 1]+0.1])
         pylab.xlabel('Velocity (km.s-1)')
@@ -103,6 +104,39 @@ class BLE:
             d[i] = float(self.drange(i))
         self.rngdcrit = list(d.items())
         return self.rngdcrit
+    
+    
+    def u_succ(self, DRAMA_arr, shield_arr):
+        """
+        Parameters
+        ----------
+        DRAMA_arr : Array of floats
+            An array output from DRAMA analysis. In first column is impactor 
+            velocity,in second column is impactor diameter and in the third
+            column is collision probability. Length of this array is
+            independant of shield_arr.
+        shield_arr : List
+            list array of two columns with impactor velocity and crtical
+            diameter in the first and second columns respectively.
+
+        Returns
+        -------
+        None.
+
+        """
+        cum_prob = 0
+        for i in DRAMA_arr:
+            # find the point in shield_arr with the highest velocity below that of the point in DRAMA_arr
+            n = 0
+            v = DRAMA_arr[i][0]
+            while shield_arr[n][0] < v:
+                n+=1
+            p1 = shield_arr[n-1]
+            p2 = shield_arr[n]
+            m = (p2[1] - p1[1])/(p2[0] - p2[0])
+            if i[1] <= (p1[1] + m * (v-p1[0])):
+                cum_prob += i[2]
+        return cum_prob
 
 
     def ideal(self, succ_rate, Arho_max = 3, bumper_dependancy = 0, inc_wall = True):
@@ -187,7 +221,7 @@ class BLE:
                     succ_ct += 1
                 itr_count += 1
         if Arho_ct == 0:
-            print('ERROR: No comination with Arho <= Arho_max\n'
+            print('ERROR: No combination with Arho <= Arho_max\n'
                   'Try increasing Arho_max')
             return 0
         elif succ_ct == 0:
@@ -251,7 +285,9 @@ class SRL(BLE):
 
 
 class Christiansen(BLE):
-    lbl = 'Christiansen'
+    
+    def graph_prop(self):
+        self.lbl = 'Christiansen'
 
     def crit_d_bal(self, vel, impact_angle=0):
         """
@@ -260,6 +296,7 @@ class Christiansen(BLE):
         Outputs:critcal projectile diameter for given velocity in the
                 ballistic region
         """
+        
         self.vel = vel
         self.impact_angle = impact_angle
         # determine angle in radians
