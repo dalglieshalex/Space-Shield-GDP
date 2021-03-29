@@ -6,9 +6,12 @@ Created on Sun Nov 22 11:11:15 2020
 """
 import numpy as np
 import pandas as pd
-import pylab
+import matplotlib.pyplot as plt
+import matplotlib.colors as clr
 from itertools import product
-import time
+import time, random
+import directories as dirs
+from BLE_func import read_master_data
 
 
 class BLE:
@@ -18,13 +21,13 @@ class BLE:
         projectile sheet
         """
         varis = pd.DataFrame(pd.read_excel(
-            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ShieldProperties.xlsx',
+            dirs.in_dir+'ShieldProperties.xlsx',
             sheet_name=shieldsheet, index_col=0,
             header=0, dtype={'denotion': str,
                              'Value': float}, engine='openpyxl'))
         # import data from excel sheet and convert to numpy array
         varip = pd.DataFrame(pd.read_excel(
-            r'C:\Users\dalgl\OneDrive\Documents\4th year\GDP\Space-Shield-GDP\ProjectileProperties.xlsx',
+            dirs.in_dir+'ProjectileProperties.xlsx',
             sheet_name=projsheet, index_col=0, header=0,
             dtype={'Value': float}, engine='openpyxl'))
 
@@ -52,10 +55,12 @@ class BLE:
         # define iteration inputs
         self.Arho_max = 3 # g
         self.succ_rate = 95 # %
-        # define label inputs
-        self.lbl = 0
+        # define label and plot colour no.
+        self.col = random.randint(0,255)/255
+        self.lbl = shieldsheet
+        # define minimum and maximum velocities to scan over
         self.maxvel = 16
-        self.minvel = 0.5
+        self.minvel = 0.001
         # set shatter region limits
         # ideally shock analysis done to work this out
         self.v_shat = 3 # kms^-1
@@ -82,14 +87,15 @@ class BLE:
 
 
     def graph(self):
-        start_time = time.time()
+        #start_time = time.time()
         vd = np.array(self.arr())
-        self.graph_prop()
-        pylab.plot(vd[:, 0], vd[:,1], 'c')
-        pylab.axis([0, self.maxvel+1, 0, vd[0, 1]+0.1])
-        pylab.xlabel('Velocity (km.s-1)')
-        pylab.ylabel('Crit Diameter (cm)')
-        print(f'Time: {(time.time() - start_time):.3f} s')
+        cmap = plt.cm.rainbow
+        plt.plot(vd[:, 0], vd[:,1], color=cmap(self.col), label=self.lbl)
+        plt.axis([0, self.maxvel, 0.1, 0.8])
+        plt.xlabel('Velocity (km.s-1)')
+        plt.ylabel('Crit Diameter (cm)')
+        plt.legend()
+        #print(f'Time: {(time.time() - start_time):.3f} s')
 
 
     def arr(self):
@@ -106,12 +112,12 @@ class BLE:
         return self.rngdcrit
     
     
-    def u_succ(self, DRAMA_arr, shield_arr):
+    def u_succ(self, MASTER_arr):
         """
         Parameters
         ----------
-        DRAMA_arr : Array of floats
-            An array output from DRAMA analysis. In first column is impactor 
+        MASTER_arr : Array of floats
+            An array output from MASTER analysis. In first column is impactor 
             velocity,in second column is impactor diameter and in the third
             column is collision probability. Length of this array is
             independant of shield_arr.
@@ -125,21 +131,25 @@ class BLE:
 
         """
         cum_prob = 0
-        for i in DRAMA_arr:
-            # find the point in shield_arr with the highest velocity below that of the point in DRAMA_arr
+        g = np.array(self.arr())
+        for i in MASTER_arr:
+            # find the point in shield_arr with the highest velocity below that of the point in MASTER_arr
             n = 0
-            v = DRAMA_arr[i][0]
-            while shield_arr[n][0] < v:
-                n+=1
-            p1 = shield_arr[n-1]
-            p2 = shield_arr[n]
-            m = (p2[1] - p1[1])/(p2[0] - p2[0])
+            v = i[0]
+            idx = (np.abs(g[:,0]-v)).argmin()
+            if g[idx][0]<= v:
+                p1 = g[idx]
+                p2 = g[idx+1]
+            else:
+                p1 = g[idx-1]
+                p2 = g[idx]
+            m = (p2[1] - p1[1])/(p2[0] - p1[0])
             if i[1] <= (p1[1] + m * (v-p1[0])):
-                cum_prob += i[2]
+                cum_prob += i[3]
         return cum_prob
 
 
-    def ideal(self, succ_rate, Arho_max = 3, bumper_dependancy = 0, inc_wall = True):
+    def ideal(self, succ_rate, Arho_max = 3, bumper_dependancy = 0, inc_wall = True, succ_it = 1, file = 'master_t.__1'):
         """
         The definition of 'ideal' used in this function is:
             An ideal shield should have the lowest possible area density while
@@ -168,19 +178,26 @@ class BLE:
             DESCRIPTION.
 
         """
-        start_time = time.time()
+        #start_time = time.time()
+        # save starting shield properties
+        S1 = self.S1
+        t_ob = self.t_ob
+        t_b = self.t_b
         # define % of non-perforation over velocity range
         self.succ_rate = succ_rate
         self.Arho_max = Arho_max
         # define output list containing successful variables
         a = {}
+        # create probabilities array from MASTER data
+        if succ_it == 1:
+            MASTER_arr = read_master_data(file)[0]
         # define shield values to vary and the ranges of variation
-        S1rng = np.arange(start = 0.1, stop = 10, step = 0.1)
-        t_obrng = np.arange(start = 0.1, stop = 5, step = 0.05)
+        S1rng = np.arange(start = 0.1, stop = 12, step = 0.1)
+        t_obrng = np.arange(start = 0.01, stop = 5, step = 0.05)
         if self.t_b == 0: # allows analysis of whipple shields
             t_brng = np.zeros(1)
             rho_ratio = 0
-        else:
+        else: # used for shields with internal structure like a stuffed Whipple
             t_brng = np.arange(start = 0.1, stop = 5, step = 0.05)
             # approximate ratio between average inner structure density and 
             # bumper density
@@ -209,17 +226,32 @@ class BLE:
             # filter out area ratios greater than Arho_max
             if A_rho <= self.Arho_max:
                 Arho_ct += 1
-                g = self.arr()
-                succ = 0
-                for p in g:
-                    if p[1] > self.di:
-                        succ += 1
-                sucr = (succ/len(g)) * 100
+                # use simple success criteria
+                if succ_it == 0:
+                    g = self.arr()
+                    succ = 0
+                    for p in g:
+                        if p[1] > self.di:
+                            succ += 1
+                    sucr = (succ/len(g)) * 100
+                # use probability based criteria using MASTER data
+                elif succ_it == 1:
+                    sucr = self.u_succ(MASTER_arr)*100
+                    #print(f'{sucr}')
+                #else:
+                    #print('ERROR: Invalid succ_it value')
+                    #return 0
                 # determine whether condition satisfies the minimum success rate
                 if sucr >= self.succ_rate:
                     a[itr_count] = self.S1, self.t_ob, self.t_b, sucr, A_rho
                     succ_ct += 1
                 itr_count += 1
+                #print(f'Performing Iterations: {itr_count}', end="\r")
+                
+        # reassign original shield properties
+        self.S1 = S1
+        self.t_ob = t_ob
+        self.t_b = t_b
         if Arho_ct == 0:
             print('ERROR: No combination with Arho <= Arho_max\n'
                   'Try increasing Arho_max')
@@ -238,11 +270,11 @@ class BLE:
                     d.append(i)
             e = np.array(d)
             ans = e[np.argmax(e[:][:,-2])]
-            print(f'itr {itr_count} in {(time.time() - start_time):.3f} s')
-            print(f"Bumper spacing = {ans[0]:.2f}cm\nOuter bumper thickness ="
-                  f" {ans[1]:.2f}cm\nInner bumper thickness = {ans[2]:.2f}cm\n"
-                  f"These parameters give a success rate of {ans[3]}% "
-                  f"and the area density is {ans[4]:.2f}g.cm^-2")
+#            print(f'itr {itr_count} in {(time.time() - start_time):.3f} s')
+#            print(f"Bumper spacing = {ans[0]:.2f}cm\nOuter bumper thickness ="
+#                  f" {ans[1]:.2f}cm\nInner bumper thickness = {ans[2]:.2f}cm\n"
+#                  f"These parameters give a success rate of {ans[3]:.2f}% "
+#                  f"and the area density is {ans[4]:.2f}g.cm^-2")
             return ans
 
 
@@ -284,10 +316,10 @@ class SRL(BLE):
         return dc
 
 
-class Christiansen(BLE):
+class Whipple(BLE):
     
-    def graph_prop(self):
-        self.lbl = 'Christiansen'
+    #def graph_prop(self):
+     #   self.lbl = 'Whipple'
 
     def crit_d_bal(self, vel, impact_angle=0):
         """
