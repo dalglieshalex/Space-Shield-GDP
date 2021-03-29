@@ -31,7 +31,7 @@ def read_master_data(text_file):
     for i in content:
         try:
             lin = i.split()
-            F = float(lin[19])#/float(lin[0])             # Takes the flux value 
+            F = float(lin[19])/float(lin[0])             # Takes the flux value 
             p = 1 - math.exp((-1)*F*A*t)    # Calculates the probability of this impact
             prob_dat[n] = float(lin[0]), float(lin[1])*1E2, p # append values to sheets to arrays and consert diameter to cm
             flux_dat[n] = float(lin[0]), float(lin[1])*1E2, F
